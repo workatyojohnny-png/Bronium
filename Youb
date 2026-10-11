@@ -1,0 +1,555 @@
+-- Crosshair Inventory
+-- Put this LocalScript in StarterPlayer > StarterPlayerScripts
+-- Click the "Crosshairs" button -> inventory opens -> click a card to equip it.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "CrosshairInventory"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+----------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------
+local function make(class, props, children)
+	local obj = Instance.new(class)
+	for k, v in pairs(props) do
+		obj[k] = v
+	end
+	for _, c in ipairs(children or {}) do
+		c.Parent = obj
+	end
+	return obj
+end
+
+local function corner(r)
+	return make("UICorner", { CornerRadius = UDim.new(0, r) })
+end
+
+local function stroke(color, thickness, transparency)
+	return make("UIStroke", {
+		Color = color,
+		Thickness = thickness,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	})
+end
+
+local function dot(parent, size, color)
+	return make("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		Parent = parent,
+	}, { corner(size) })
+end
+
+local function bar(parent, x, y, w, h, color)
+	return make("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, x, 0.5, y),
+		Size = UDim2.fromOffset(w, h),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		Parent = parent,
+	})
+end
+
+----------------------------------------------------------------
+-- Crosshair definitions
+-- Build(holder) draws the crosshair inside `holder`.
+-- It may return an update function(elapsed) for animation.
+----------------------------------------------------------------
+local Crosshairs = {}
+
+-- 0) None
+table.insert(Crosshairs, {
+	Name = "None",
+	Build = nil,
+})
+
+-- 1) Your Teal Shining Moving crosshair
+table.insert(Crosshairs, {
+	Name = "Teal Shining Ring",
+	Build = function(holder)
+		local ring = make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(16, 16),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = holder,
+		}, { corner(100) })
+
+		local ringStroke = stroke(Color3.fromRGB(0, 255, 220), 2, 0.05)
+		ringStroke.Parent = ring
+
+		local glow = make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(23, 23),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = ring.ZIndex - 1,
+			Parent = holder,
+		}, { corner(100) })
+
+		local glowStroke = stroke(Color3.fromRGB(0, 255, 220), 3, 0.72)
+		glowStroke.Parent = glow
+
+		return function(elapsed)
+			local pulse = (math.sin(elapsed * 3) + 1) / 2
+			local shine = (math.sin(elapsed * 5) + 1) / 2
+
+			local size = 15 + pulse * 3
+			local glowSize = size + 8 + shine * 3
+
+			local position = UDim2.new(
+				0.5, math.sin(elapsed * 1.5) * 2,
+				0.5, math.cos(elapsed * 1.8) * 2
+			)
+
+			ring.Position = position
+			glow.Position = position
+			ring.Size = UDim2.fromOffset(size, size)
+			glow.Size = UDim2.fromOffset(glowSize, glowSize)
+
+			ringStroke.Transparency = 0.05 + shine * 0.25
+			ringStroke.Thickness = 1.8 + pulse * 0.7
+			glowStroke.Transparency = 0.82 - shine * 0.3
+
+			local c = Color3.fromRGB(0, 220 + math.floor(shine * 35), 210 + math.floor(shine * 45))
+			ringStroke.Color = c
+			glowStroke.Color = c
+		end
+	end,
+})
+
+-- 2) Classic white cross with gap
+table.insert(Crosshairs, {
+	Name = "Classic Cross",
+	Build = function(holder)
+		local c = Color3.fromRGB(255, 255, 255)
+		bar(holder, 0, -9, 2, 8, c)
+		bar(holder, 0, 9, 2, 8, c)
+		bar(holder, -9, 0, 8, 2, c)
+		bar(holder, 9, 0, 8, 2, c)
+	end,
+})
+
+-- 3) Red dot
+table.insert(Crosshairs, {
+	Name = "Red Dot",
+	Build = function(holder)
+		dot(holder, 6, Color3.fromRGB(255, 50, 50))
+	end,
+})
+
+-- 4) Green circle + dot
+table.insert(Crosshairs, {
+	Name = "Green Circle",
+	Build = function(holder)
+		local ring = make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(22, 22),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = holder,
+		}, { corner(100), stroke(Color3.fromRGB(80, 255, 120), 2, 0.1) })
+		dot(holder, 3, Color3.fromRGB(80, 255, 120))
+	end,
+})
+
+-- 5) Rainbow spinning plus
+table.insert(Crosshairs, {
+	Name = "Rainbow Plus",
+	Build = function(holder)
+		local parts = {
+			bar(holder, 0, -8, 2, 10, Color3.new(1, 1, 1)),
+			bar(holder, 0, 8, 2, 10, Color3.new(1, 1, 1)),
+			bar(holder, -8, 0, 10, 2, Color3.new(1, 1, 1)),
+			bar(holder, 8, 0, 10, 2, Color3.new(1, 1, 1)),
+		}
+		local center = dot(holder, 3, Color3.new(1, 1, 1))
+		return function(elapsed)
+			local color = Color3.fromHSV((elapsed * 0.4) % 1, 1, 1)
+			for _, p in ipairs(parts) do
+				p.BackgroundColor3 = color
+			end
+			center.BackgroundColor3 = color
+		end
+	end,
+})
+
+-- 6) Pink Diamond: the square spins fast (Circular easing), waits 2s, repeats
+table.insert(Crosshairs, {
+	Name = "Pink Diamond",
+	Build = function(holder)
+		local PINK = Color3.fromRGB(255, 105, 180)
+		local SPIN_TIME = 0.7 -- how long the fast spin lasts
+		local PAUSE_TIME = 2 -- wait before spinning again
+		local TURNS = 2 -- full rotations per spin
+
+		local glow = make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(20, 20),
+			Rotation = 45,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		local glowStroke = stroke(PINK, 4, 0.78)
+		glowStroke.Parent = glow
+
+		local square = make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(14, 14),
+			Rotation = 45,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		stroke(PINK, 2, 0).Parent = square
+
+		-- the center point stays still
+		dot(holder, 3, PINK)
+
+		local start = os.clock()
+		local cycle = PAUSE_TIME + SPIN_TIME
+
+		return function()
+			local t = (os.clock() - start) % cycle
+			local rot = 45
+			local spinning = false
+
+			if t >= PAUSE_TIME then
+				spinning = true
+				local alpha = (t - PAUSE_TIME) / SPIN_TIME
+				local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Circular, Enum.EasingDirection.InOut)
+				rot = 45 + eased * 360 * TURNS
+			end
+
+			square.Rotation = rot
+			glow.Rotation = rot
+			glowStroke.Transparency = spinning and 0.5 or 0.78
+		end
+	end,
+})
+
+-- 7) Spinning maroon crosshair (4 arrows pointing in, constant spin + motion blur)
+table.insert(Crosshairs, {
+	Name = "Spinning Maroon Crosshair",
+	Build = function(holder)
+		local MAROON = Color3.fromRGB(140, 0, 35)
+		local SPEED = 300 -- degrees per second ("a little bit fast")
+		local BLUR_STEP = 7 -- degrees each ghost trails behind the last
+
+		-- builds one rotor: 4 arrows pointing toward the center
+		local function buildRotor(transparency, zIndex)
+			local rotor = make("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(50, 50),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = zIndex,
+				Parent = holder,
+			})
+
+			for k = 0, 3 do
+				local arm = make("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.fromScale(1, 1),
+					Rotation = k * 90,
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					ZIndex = zIndex,
+					Parent = rotor,
+				})
+
+				local shaft = bar(arm, 0, -14, 2, 14, MAROON) -- arrow shaft
+				local headL = bar(arm, -2.5, -9, 2, 7, MAROON) -- arrow head
+				local headR = bar(arm, 2.5, -9, 2, 7, MAROON)
+				headL.Rotation = -45
+				headR.Rotation = 45
+
+				for _, part in ipairs({ shaft, headL, headR }) do
+					part.BackgroundTransparency = transparency
+					part.ZIndex = zIndex
+				end
+			end
+			return rotor
+		end
+
+		-- motion blur = faded ghost copies trailing behind the main arrows
+		local ghostAlphas = { 0.6, 0.75, 0.85, 0.92 }
+		local ghosts = {}
+		for i, a in ipairs(ghostAlphas) do
+			ghosts[i] = buildRotor(a, 1)
+		end
+		local main = buildRotor(0, 2)
+
+		dot(holder, 3, MAROON).ZIndex = 3
+
+		return function(elapsed)
+			local rot = (elapsed * SPEED) % 360
+			main.Rotation = rot
+			for i, ghost in ipairs(ghosts) do
+				ghost.Rotation = rot - i * BLUR_STEP
+			end
+		end
+	end,
+})
+
+----------------------------------------------------------------
+-- Mounting + animation loop
+----------------------------------------------------------------
+local updaters = {}
+local startTime = os.clock()
+
+RunService.RenderStepped:Connect(function()
+	local elapsed = os.clock() - startTime
+	for _, fn in pairs(updaters) do
+		fn(elapsed)
+	end
+end)
+
+local function mount(def, parent)
+	local holder = make("Frame", {
+		Name = "Holder",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Parent = parent,
+	})
+	if def.Build then
+		local update = def.Build(holder)
+		if update then
+			updaters[holder] = update
+			holder.Destroying:Connect(function()
+				updaters[holder] = nil
+			end)
+		end
+	end
+	return holder
+end
+
+----------------------------------------------------------------
+-- Live crosshair layer
+----------------------------------------------------------------
+local liveLayer = make("Frame", {
+	Name = "LiveCrosshair",
+	BackgroundTransparency = 1,
+	Size = UDim2.fromScale(1, 1),
+	ZIndex = 1,
+	Parent = gui,
+})
+
+local equippedIndex = 1
+local inventoryOpen = false
+local liveHolder
+
+local function refreshMouseIcon()
+	local def = Crosshairs[equippedIndex]
+	-- show the normal mouse while the inventory is open or when no crosshair is equipped
+	UserInputService.MouseIconEnabled = inventoryOpen or def.Build == nil
+end
+
+local cards = {}
+
+local function equip(index)
+	equippedIndex = index
+	if liveHolder then
+		liveHolder:Destroy()
+		liveHolder = nil
+	end
+	local def = Crosshairs[index]
+	if def.Build then
+		liveHolder = mount(def, liveLayer)
+	end
+	for i, card in ipairs(cards) do
+		local selected = (i == index)
+		card.Stroke.Color = selected and Color3.fromRGB(0, 255, 220) or Color3.fromRGB(70, 70, 80)
+		card.Stroke.Thickness = selected and 2.5 or 1
+		card.Tag.Text = selected and "EQUIPPED" or "Click to equip"
+		card.Tag.TextColor3 = selected and Color3.fromRGB(0, 255, 220) or Color3.fromRGB(150, 150, 160)
+	end
+	refreshMouseIcon()
+end
+
+----------------------------------------------------------------
+-- Inventory window
+----------------------------------------------------------------
+local window = make("Frame", {
+	Name = "Inventory",
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.new(0, 460, 0, 340),
+	BackgroundColor3 = Color3.fromRGB(22, 22, 28),
+	BorderSizePixel = 0,
+	Visible = false,
+	ZIndex = 10,
+	Parent = gui,
+}, { corner(14), stroke(Color3.fromRGB(0, 255, 220), 1.5, 0.3) })
+
+make("TextLabel", {
+	Text = "Crosshair Inventory",
+	Font = Enum.Font.GothamBold,
+	TextSize = 20,
+	TextColor3 = Color3.fromRGB(255, 255, 255),
+	TextXAlignment = Enum.TextXAlignment.Left,
+	BackgroundTransparency = 1,
+	Position = UDim2.fromOffset(18, 10),
+	Size = UDim2.new(1, -70, 0, 34),
+	ZIndex = 11,
+	Parent = window,
+})
+
+local closeBtn = make("TextButton", {
+	Text = "X",
+	Font = Enum.Font.GothamBold,
+	TextSize = 16,
+	TextColor3 = Color3.fromRGB(255, 255, 255),
+	BackgroundColor3 = Color3.fromRGB(200, 60, 60),
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 12),
+	Size = UDim2.fromOffset(30, 30),
+	ZIndex = 11,
+	Parent = window,
+}, { corner(8) })
+
+local scroll = make("ScrollingFrame", {
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	Position = UDim2.fromOffset(14, 54),
+	Size = UDim2.new(1, -28, 1, -68),
+	CanvasSize = UDim2.new(0, 0, 0, 0),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollBarThickness = 4,
+	ZIndex = 11,
+	Parent = window,
+}, {
+	make("UIGridLayout", {
+		CellSize = UDim2.fromOffset(130, 130),
+		CellPadding = UDim2.fromOffset(10, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}),
+	make("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 2) }),
+})
+
+for i, def in ipairs(Crosshairs) do
+	local card = make("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundColor3 = Color3.fromRGB(32, 32, 40),
+		BorderSizePixel = 0,
+		LayoutOrder = i,
+		ZIndex = 12,
+		Parent = scroll,
+	}, { corner(10) })
+
+	local cardStroke = stroke(Color3.fromRGB(70, 70, 80), 1, 0)
+	cardStroke.Parent = card
+
+	local preview = make("Frame", {
+		BackgroundColor3 = Color3.fromRGB(12, 12, 16),
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.new(1, -16, 0, 68),
+		ZIndex = 13,
+		ClipsDescendants = true,
+		Parent = card,
+	}, { corner(8) })
+
+	if def.Build then
+		mount(def, preview)
+	else
+		make("TextLabel", {
+			Text = "OFF",
+			Font = Enum.Font.GothamBold,
+			TextSize = 16,
+			TextColor3 = Color3.fromRGB(120, 120, 130),
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 14,
+			Parent = preview,
+		})
+	end
+
+	make("TextLabel", {
+		Text = def.Name,
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(6, 82),
+		Size = UDim2.new(1, -12, 0, 18),
+		ZIndex = 13,
+		Parent = card,
+	})
+
+	local tag = make("TextLabel", {
+		Text = "Click to equip",
+		Font = Enum.Font.Gotham,
+		TextSize = 11,
+		TextColor3 = Color3.fromRGB(150, 150, 160),
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(6, 102),
+		Size = UDim2.new(1, -12, 0, 16),
+		ZIndex = 13,
+		Parent = card,
+	})
+
+	cards[i] = { Stroke = cardStroke, Tag = tag }
+
+	card.MouseButton1Click:Connect(function()
+		equip(i)
+	end)
+end
+
+----------------------------------------------------------------
+-- Open / close button
+----------------------------------------------------------------
+local openBtn = make("TextButton", {
+	Name = "OpenInventory",
+	Text = "Crosshairs",
+	Font = Enum.Font.GothamBold,
+	TextSize = 16,
+	TextColor3 = Color3.fromRGB(0, 20, 20),
+	BackgroundColor3 = Color3.fromRGB(0, 255, 220),
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 16, 1, -16),
+	Size = UDim2.fromOffset(130, 42),
+	ZIndex = 20,
+	Parent = gui,
+}, { corner(10) })
+
+local function setOpen(open)
+	inventoryOpen = open
+	window.Visible = open
+	refreshMouseIcon()
+end
+
+openBtn.MouseButton1Click:Connect(function()
+	setOpen(not inventoryOpen)
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+	setOpen(false)
+end)
+
+-- Start with the teal crosshair equipped
+equip(2)
